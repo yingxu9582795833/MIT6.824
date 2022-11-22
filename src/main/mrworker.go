@@ -1,5 +1,5 @@
 package main
-
+//加一个注释
 //
 // start a worker process, which is implemented
 // in ../mr/worker.go. typically there will be
