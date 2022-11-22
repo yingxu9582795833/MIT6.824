@@ -1,7 +1,7 @@
 package main
 //加一个注释
 //
-// start a worker process, which is implemented
+// start jsj  a worker process, which is implemented
 // in ../mr/worker.go. typically there will be
 // multiple worker processes, talking to one coordinator.
 //
