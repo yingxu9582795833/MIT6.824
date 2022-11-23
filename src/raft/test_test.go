@@ -27,6 +27,7 @@ func TestInitialElection2A(t *testing.T) {
 	cfg.begin("Test (2A): initial election")
 
 	// is a leader elected?
+	//这里的返回值虽然没用，但是这个函数可以测试是否选举出了leader
 	cfg.checkOneLeader()
 
 	// sleep a bit to avoid racing with followers learning of the
