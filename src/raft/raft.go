@@ -17,6 +17,14 @@ package raft
 //   in the same server.
 //
 
+//思路
+//1.需要先定义一台服务器的状态，可以根据论文定义
+//2.然后是选举者选出来的流程
+//初始化：先初始化所有服务器，然后服务器开始等待接收心跳包
+//每个服务器有一个随机的心跳包接收时间，最开始到达的超时时间的服务器，向其他服务器发起投票请求
+//其他服务器对比任期号回应投票请求
+//3.搞懂test的调用流程，通过test搞懂需要实现的接口
+
 import (
 	//	"bytes"
 	"sync"
@@ -25,7 +33,6 @@ import (
 	//	"6.824/labgob"
 	"6.824/labrpc"
 )
-
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -92,7 +99,6 @@ func (rf *Raft) persist() {
 	// rf.persister.SaveRaftState(data)
 }
 
-
 //
 // restore previously persisted state.
 //
@@ -115,7 +121,6 @@ func (rf *Raft) readPersist(data []byte) {
 	// }
 }
 
-
 //
 // A service wants to switch to snapshot.  Only do so if Raft hasn't
 // have more recent info since it communicate the snapshot on applyCh.
@@ -135,7 +140,6 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (2D).
 
 }
-
 
 //
 // example RequestVote RPC arguments structure.
@@ -194,7 +198,6 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	return ok
 }
 
-
 //
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
@@ -215,7 +218,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (2B).
-
 
 	return index, term, isLeader
 }
@@ -278,7 +280,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
-
 
 	return rf
 }

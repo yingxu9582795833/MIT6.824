@@ -39,7 +39,7 @@ func main() {
 	for _, filename := range os.Args[2:] {
 		file, err := os.Open(filename)
 		if err != nil {
-			log.Fatalf("cannot open %v", filename)
+			log.Fatalf("err%v", err)
 		}
 		content, err := ioutil.ReadAll(file)
 		if err != nil {
@@ -93,7 +93,7 @@ func main() {
 func loadPlugin(filename string) (func(string, string) []mr.KeyValue, func(string, []string) string) {
 	p, err := plugin.Open(filename)
 	if err != nil {
-		log.Fatalf("cannot load plugin %v", filename)
+		log.Fatalf("err %v", err)
 	}
 	xmapf, err := p.Lookup("Map")
 	if err != nil {
