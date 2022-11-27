@@ -28,7 +28,7 @@ package raft
 //注意点
 //如果候选人收到领导人的心跳包，会变为追随者，同时重置任期号
 import (
-	"math/rand"
+	"fmt"
 	//	"bytes"
 	"sync"
 	"sync/atomic"
@@ -56,16 +56,14 @@ const (
 	Leader
 )
 const (
-	rejected VoteState = iota
+	rejected State = iota
 	voted
 	timeout
-)
-const (
-	lose NodeState = iota
+	success
+	lose
 )
 
-type NodeState int
-type VoteState int
+type State int
 type Status int
 
 //心跳包
@@ -76,7 +74,8 @@ type AppendEntriesArgs struct {
 }
 
 type AppendEntriesReply struct {
-	State NodeState
+	State State
+	Term  int
 }
 type ApplyMsg struct {
 	CommandValid bool
@@ -115,11 +114,13 @@ type Raft struct {
 	matchIndex []int
 
 	//自定义状态
-	status           Status //服务器的身份
-	heartTime        int    //心跳时间
-	electionOverTime int    //选举超时时间
-	loseTime         int    //失联时间
-	voteNum          int    //票数
+	status           Status       //服务器的身份
+	heartTime        int          //心跳时间
+	electionOverTime int          //选举超时时间
+	loseTime         int          //失联时间
+	voteNum          int          //票数
+	heartTicker      *time.Ticker //心跳定时器
+	electionTimer    *time.Timer  //选举计时器
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
@@ -213,7 +214,8 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here (2A).
-	State VoteState
+	State State
+	Term  int
 }
 
 //
@@ -229,6 +231,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.currentTerm = args.CurrentTerm
 		rf.votedFor = args.Ind
 		rf.status = Follower
+		//重置定时器
+		rf.electionTimer.Reset(RandElection())
 		reply.State = voted
 	}
 }
@@ -277,23 +281,21 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 			}
 		}
 	}
-	switch reply.State {
-	case rejected:
-	case voted:
-		rf.mu.Lock()
-		defer rf.mu.Unlock()
-		rf.voteNum++
-		if rf.voteNum > len(rf.peers)/2 {
-			rf.status = Leader
-		}
-	}
 	return ok
 }
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
-
+	if rf.currentTerm <= args.Term {
+		rf.status = Follower
+		rf.electionTimer.Reset(RandElection())
+		rf.currentTerm = args.Term
+		reply.State = success
+	} else {
+		reply.State = rejected
+	}
+	reply.Term = rf.currentTerm
 }
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	if !ok {
 		reply.State = lose
 		return
@@ -350,20 +352,23 @@ func (rf *Raft) killed() bool {
 
 // The ticker go routine starts a new election if this peer hasn't received
 // heartsbeats recently.
-func (rf *Raft) electionTicker() {
+func (rf *Raft) electionTick() {
 	for rf.killed() == false {
-		ticker := time.NewTicker(time.Duration(rf.electionOverTime) * time.Millisecond)
-		<-ticker.C
+		<-rf.electionTimer.C
 		if rf.status == Leader {
 			continue
 		}
+		rf.mu.Lock()
 		//改变身份
 		rf.status = Candidate
+		//任期递增
+		rf.currentTerm++
 		//投票给自己
 		rf.voteNum++
 		rf.votedFor = rf.me
 		//重置超时时间
-		rf.electionOverTime = rand.Int()%250 + 150
+		rf.electionTimer.Reset(RandElection())
+		rf.mu.Unlock()
 		//请求其他服务器投票
 		for i := 0; i < len(rf.peers); i++ {
 			if i == rf.me {
@@ -375,14 +380,35 @@ func (rf *Raft) electionTicker() {
 			}
 			reply := RequestVoteReply{}
 			rf.sendRequestVote(i, &args, &reply)
+			switch reply.State {
+			case timeout:
+				fmt.Printf("%v sentRequestVote to %v timeout \n", rf.me, i)
+			case rejected:
+				rf.mu.Lock()
+				if reply.Term > rf.currentTerm {
+					rf.status = Follower
+					rf.currentTerm = reply.Term
+					rf.voteNum = 0
+					rf.votedFor = -1
+					//重置选举时间
+					rf.electionTimer.Reset(RandElection())
+				}
+				rf.mu.Unlock()
+			case voted:
+				rf.mu.Lock()
+				rf.voteNum++
+				if rf.voteNum > len(rf.peers)/2 {
+					rf.status = Leader
+				}
+				rf.mu.Unlock()
+			}
 		}
 	}
 }
 
-func (rf *Raft) heartTicker() {
+func (rf *Raft) heartTick() {
 	for rf.killed() == false {
-		ticker := time.NewTicker(time.Duration(rf.heartTime) * time.Millisecond)
-		<-ticker.C
+		<-rf.heartTicker.C
 		if rf.status != Leader {
 			continue
 		}
@@ -397,12 +423,26 @@ func (rf *Raft) heartTicker() {
 			}
 			reply := AppendEntriesReply{}
 			rf.sendAppendEntries(i, &args, &reply)
+			switch reply.State {
+			case lose:
+			case success:
+			case rejected:
+				rf.mu.Lock()
+				if reply.Term > rf.currentTerm {
+					rf.currentTerm = reply.Term
+					rf.status = Follower
+					rf.electionTimer.Reset(RandElection())
+					rf.voteNum = 0
+					rf.votedFor = -1
+				}
+				rf.mu.Unlock()
+			}
 		}
 	}
 }
 func (rf *Raft) ticker() {
-	go rf.heartTicker()
-	go rf.electionTicker()
+	go rf.heartTick()
+	go rf.electionTick()
 }
 
 //
@@ -422,12 +462,19 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
-
+	rf.mu.Lock()
 	// Your initialization code here (2A, 2B, 2C).
 
+	rf.votedFor = -1
+	rf.voteNum = 0
+	rf.status = Follower
+	rf.electionTimer = time.NewTimer(RandElection())
+	rf.heartTicker = time.NewTicker(time.Duration(100) * time.Millisecond)
+	rf.currentTerm = 0
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
+	rf.mu.Unlock()
 	// start ticker goroutine to start elections
 	rf.ticker()
 
