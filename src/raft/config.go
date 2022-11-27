@@ -63,6 +63,7 @@ type config struct {
 var ncpu_once sync.Once
 
 func make_config(t *testing.T, n int, unreliable bool, snapshot bool) *config {
+	//检查cpu的数量
 	ncpu_once.Do(func() {
 		if runtime.NumCPU() < 2 {
 			fmt.Printf("warning: only one CPU, which may conceal locking bugs\n")
@@ -462,6 +463,7 @@ func (cfg *config) checkOneLeader() int {
 }
 
 // check that everyone agrees on the term.
+// 查看是不是每个人都同意该term
 func (cfg *config) checkTerms() int {
 	term := -1
 	for i := 0; i < cfg.n; i++ {
