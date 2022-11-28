@@ -363,7 +363,7 @@ func (cfg *config) connect(i int) {
 
 	cfg.connected[i] = true
 
-	// outgoing ClientEnds
+	// outgoing ClientEnds //离任，卸任
 	for j := 0; j < cfg.n; j++ {
 		if cfg.connected[j] {
 			endname := cfg.endnames[i][j]
@@ -371,7 +371,7 @@ func (cfg *config) connect(i int) {
 		}
 	}
 
-	// incoming ClientEnds
+	// incoming ClientEnds //
 	for j := 0; j < cfg.n; j++ {
 		if cfg.connected[j] {
 			endname := cfg.endnames[j][i]

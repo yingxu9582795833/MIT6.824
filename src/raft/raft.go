@@ -362,7 +362,9 @@ func (rf *Raft) Kill() {
 }
 
 func (rf *Raft) killed() bool {
-	z := atomic.LoadInt32(&rf.dead)
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	z := rf.dead
 	return z == 1
 }
 
@@ -371,10 +373,11 @@ func (rf *Raft) killed() bool {
 func (rf *Raft) electionTick() {
 	for rf.killed() == false {
 		<-rf.electionTimer.C
+		rf.mu.Lock()
 		if rf.status == Leader {
+			rf.mu.Unlock()
 			continue
 		}
-		rf.mu.Lock()
 		//改变身份
 		rf.status = Candidate
 		//任期递增
@@ -393,11 +396,13 @@ func (rf *Raft) electionTick() {
 				continue
 			}
 			go func(i int) {
+				rf.mu.Lock()
 				args := RequestVoteArgs{
 					CurrentTerm: rf.currentTerm,
 					Ind:         rf.me,
 				}
 				reply := RequestVoteReply{}
+				rf.mu.Unlock()
 				rf.sendRequestVote(i, &args, &reply)
 				switch reply.State {
 				case timeout:
@@ -436,9 +441,12 @@ func (rf *Raft) heartTick() {
 	for rf.killed() == false {
 		<-rf.heartTicker.C
 		//DPrintf(Func{fType: Test, op: Success}, rf.me)
+		rf.mu.Lock()
 		if rf.status != Leader {
+			rf.mu.Unlock()
 			continue
 		}
+		rf.mu.Unlock()
 		//向其他的服务器发送心跳包
 		for i := 0; i < len(rf.peers); i++ {
 			if i == rf.me {
@@ -453,11 +461,11 @@ func (rf *Raft) heartTick() {
 				reply := AppendEntriesReply{}
 				rf.mu.Unlock()
 				rf.sendAppendEntries(i, &args, &reply)
+				rf.mu.Lock()
+				defer rf.mu.Unlock()
 				if rf.status != Leader {
 					return
 				}
-				rf.mu.Lock()
-				defer rf.mu.Unlock()
 				switch reply.State {
 				case notLeader:
 				case lose:
