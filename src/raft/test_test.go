@@ -8,8 +8,10 @@ package raft
 // test with the original before submitting.
 //
 
-import "testing"
-import "fmt"
+import (
+	"fmt"
+	"testing"
+)
 import "time"
 import "math/rand"
 import "sync/atomic"
@@ -20,35 +22,35 @@ import "sync"
 const RaftElectionTimeout = 1000 * time.Millisecond
 
 func TestInitialElection2A(t *testing.T) {
-	servers := 3
-	cfg := make_config(t, servers, false, false)
-	defer cfg.cleanup()
-
-	cfg.begin("Test (2A): initial election")
-
-	// is a leader elected?
-	//这里的返回值虽然没用，但是这个函数可以测试是否选举出了leader
-	cfg.checkOneLeader()
-
-	// sleep a bit to avoid racing with followers learning of the
-	// election, then check that all peers agree on the term.
-	time.Sleep(50 * time.Millisecond)
-	term1 := cfg.checkTerms()
-	if term1 < 1 {
-		t.Fatalf("term is %v, but should be at least 1", term1)
-	}
-
-	// does the leader+term stay the same if there is no network failure?
-	time.Sleep(2 * RaftElectionTimeout)
-	term2 := cfg.checkTerms()
-	if term1 != term2 {
-		fmt.Printf("warning: term changed even though there were no failures")
-	}
-
-	// there should still be a leader.
-	cfg.checkOneLeader()
-
-	cfg.end()
+	//servers := 3
+	//cfg := make_config(t, servers, false, false)
+	//defer cfg.cleanup()
+	//
+	//cfg.begin("Test (2A): initial election")
+	//
+	//// is a leader elected?
+	////这里的返回值虽然没用，但是这个函数可以测试是否选举出了leader
+	//cfg.checkOneLeader()
+	//
+	//// sleep a bit to avoid racing with followers learning of the
+	//// election, then check that all peers agree on the term.
+	//time.Sleep(50 * time.Millisecond)
+	//term1 := cfg.checkTerms()
+	//if term1 < 1 {
+	//	t.Fatalf("term is %v, but should be at least 1", term1)
+	//}
+	//
+	//// does the leader+term stay the same if there is no network failure?
+	//time.Sleep(2 * RaftElectionTimeout)
+	//term2 := cfg.checkTerms()
+	//if term1 != term2 {
+	//	fmt.Printf("warning: term changed even though there were no failures")
+	//}
+	//
+	//// there should still be a leader.
+	//cfg.checkOneLeader()
+	//
+	//cfg.end()
 }
 
 func TestReElection2A(t *testing.T) {
@@ -60,18 +62,24 @@ func TestReElection2A(t *testing.T) {
 
 	leader1 := cfg.checkOneLeader()
 
+	//time.Sleep(1000 * time.Second)
 	// if the leader disconnects, a new one should be elected.
+	fmt.Printf("disconnect %v\n", leader1)
 	cfg.disconnect(leader1)
 	cfg.checkOneLeader()
 
 	// if the old leader rejoins, that shouldn't
 	// disturb the new leader. and the old leader
 	// should switch to follower.
+	fmt.Printf("connect %v\n", leader1)
 	cfg.connect(leader1)
+	//time.Sleep(time.Duration(10000) * time.Millisecond)
 	leader2 := cfg.checkOneLeader()
 
 	// if there's no quorum, no new leader should
 	// be elected.
+	fmt.Printf("disconnect %v\n", leader2)
+	fmt.Printf("disconnect %v\n", (leader2+1)%servers)
 	cfg.disconnect(leader2)
 	cfg.disconnect((leader2 + 1) % servers)
 	time.Sleep(2 * RaftElectionTimeout)
@@ -81,10 +89,12 @@ func TestReElection2A(t *testing.T) {
 	cfg.checkNoLeader()
 
 	// if a quorum arises, it should elect a leader.
+	fmt.Printf("connect %v\n", (leader2+1)%servers)
 	cfg.connect((leader2 + 1) % servers)
 	cfg.checkOneLeader()
 
 	// re-join of last node shouldn't prevent leader from existing.
+	fmt.Printf("connect %v\n", leader2)
 	cfg.connect(leader2)
 	cfg.checkOneLeader()
 
@@ -100,12 +110,13 @@ func TestManyElections2A(t *testing.T) {
 
 	cfg.checkOneLeader()
 
-	iters := 10
+	iters := 1500
 	for ii := 1; ii < iters; ii++ {
 		// disconnect three nodes
-		i1 := rand.Int() % servers
-		i2 := rand.Int() % servers
-		i3 := rand.Int() % servers
+		i1 := 4
+		i2 := 5
+		i3 := 5
+		fmt.Println(i1, i2, i3)
 		cfg.disconnect(i1)
 		cfg.disconnect(i2)
 		cfg.disconnect(i3)
