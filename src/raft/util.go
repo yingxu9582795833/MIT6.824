@@ -98,7 +98,7 @@ func DPrintf(f Func, a ...interface{}) {
 	}
 }
 
-//选举的随机时间
-func RandElection() time.Duration {
-	return time.Duration(rand.Int()%150+300) * time.Millisecond
+//RandElection 选举的随机时间
+func RandElection() int {
+	return rand.Int()%150 + 300
 }
