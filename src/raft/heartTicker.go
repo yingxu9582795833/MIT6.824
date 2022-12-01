@@ -11,12 +11,13 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if rf.currentTerm <= args.Term {
-		rf.electionTimer.Reset(RandElection())
 		DPrintf(Func{fType: AppendEntries, op: Success}, args.LeaderId, rf.me, rf.currentTerm, args.Term)
-		rf.status = Follower
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
 		rf.voteNum = 0
+		rf.heartTimer.stop()
+		rf.electionTimer.setWaitTime(RandElection())
+		rf.electionTimer.start()
 		reply.State = success
 	} else {
 		DPrintf(Func{fType: AppendEntries, op: Rejected}, args.LeaderId, rf.me, rf.currentTerm, args.Term)
@@ -39,12 +40,13 @@ func (rf *Raft) sendAppendEntries(server int, heartCount *int, cond *sync.Cond) 
 		reply.State = lose
 	}
 	switch reply.State {
-	case notLeader:
 	case lose:
 	case success:
 	case rejected:
-		if reply.Term > rf.currentTerm {
-
+		rf.eventCh <- &higherTerm{
+			Index:    higherTermIndex,
+			highTerm: reply.Term,
+			action:   appendEntriesRejected,
 		}
 	}
 }
@@ -68,6 +70,7 @@ func (tr *heartTicker) transfer(args interface{}) SMState {
 	tr.raft.mu.Lock()
 	defer tr.raft.mu.Unlock()
 	rf := tr.raft
+	rf.heartTimer.start()
 	go rf.startHeartTick()
 	return Leader
 }

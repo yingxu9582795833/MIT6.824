@@ -14,13 +14,21 @@ func (tr *toBeFollower) transfer(arg ...interface{}) SMState {
 	}
 	context, ok := arg[0].(higherTerm)
 	if ok {
-		rf.electionTimer.stop()
-		rf.currentTerm = context.highTerm
-		rf.votedFor = context.highIndex
-		rf.voteNum = 0
-		//重置超时定时器
-		rf.electionTimer.setWaitTime(RandElection())
-		rf.electionTimer.start()
+		switch context.action {
+		case appendEntriesRejected:
+			rf.currentTerm = context.highTerm
+			rf.votedFor = -1
+			rf.voteNum = 0
+			//重置定时器
+			rf.electionTimer.setWaitTime(RandElection())
+			rf.electionTimer.start()
+		case electionRejected:
+			rf.currentTerm = context.highTerm
+			rf.votedFor = context.highIndex
+			rf.voteNum = 0
+			rf.electionTimer.setWaitTime(RandElection())
+			rf.electionTimer.start()
+		}
 	} else {
 		return ErrorState
 	}

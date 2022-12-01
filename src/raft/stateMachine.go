@@ -16,9 +16,8 @@ type Event interface {
 }
 
 const (
-	timeOutIndex int = iota
-	electionSuccessIndex
-	electionFailureIndex
+	electionTimeOutIndex int = iota
+	heartTimeOutIndex
 	higherTermIndex
 	receiveMajorityIndex
 )
@@ -47,10 +46,34 @@ func (event *electionFailure) getId() int {
 	return event.Index
 }
 
+type electionTimeOut struct {
+	Index int
+}
+
+func (event *electionTimeOut) getId() int {
+	return event.Index
+}
+
+type heartTimeOut struct {
+	Index int
+}
+
+func (event *heartTimeOut) getId() int {
+	return event.Index
+}
+
+type Action int
+
+const (
+	appendEntriesRejected Action = iota
+	electionRejected
+)
+
 type higherTerm struct {
 	Index     int
-	highTerm  int //对方的任期
-	highIndex int //对方的索引
+	highTerm  int    //对方的任期
+	highIndex int    //对方的索引
+	action    Action //子动作
 }
 
 func (event *higherTerm) getId() int {
@@ -87,7 +110,7 @@ type tran interface {
 	transfer(args ...interface{}) SMState
 }
 
-func (stateMachine *StateMachine) loop() {
+func (stateMachine *StateMachine) mainLoop() {
 	for {
 		event := <-stateMachine.eventCh
 		stateMachine.rwmu.Lock()

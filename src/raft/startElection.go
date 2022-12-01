@@ -18,6 +18,7 @@ type RequestVoteArgs struct {
 type RequestVoteReply struct {
 	State State
 	Term  int
+	Index int
 }
 
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
@@ -28,12 +29,18 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if args.CurrentTerm < rf.currentTerm {
 		reply.State = rejected
 		DPrintf(Func{fType: RequestVote, op: Rejected}, args.CandidateId, rf.me, rf.currentTerm, args.CurrentTerm)
+		reply.Term = rf.currentTerm
+		reply.Index = rf.me
 		return
 	} else if rf.votedFor != -1 && rf.currentTerm == args.CurrentTerm {
 		reply.State = used
 	} else { //投票
-		DPrintf(Func{fType: RequestVote, op: Success}, args.CandidateId, rf.me, rf.currentTerm, args.CurrentTerm)
-		rf.eventCh <- &higherTerm{Index: higherTermIndex, highTerm: args.CurrentTerm, highIndex: args.CandidateId}
+		rf.votedFor = args.CandidateId
+		rf.currentTerm = args.CurrentTerm
+		rf.voteNum = 0
+		//重置定时器
+		rf.electionTimer.setWaitTime(RandElection())
+		rf.electionTimer.start()
 	}
 }
 
@@ -70,11 +77,11 @@ func (rf *Raft) sendRequestVote(server int, joinCount *int, cond *sync.Cond) boo
 	case success:
 		rf.voteNum++
 		if rf.voteNum > len(rf.peers)+1 {
-			rf.eventCh <- &electionSuccess{Index: electionSuccessIndex}
+			rf.eventCh <- &electionSuccess{Index: receiveMajorityIndex}
 			cond.Broadcast()
 		}
 	case rejected:
-		rf.eventCh <- &higherTerm{Index: higherTermIndex, highTerm: args.CurrentTerm, highIndex: args.CandidateId}
+		rf.eventCh <- &higherTerm{Index: higherTermIndex, highTerm: reply.Term, highIndex: reply.Index, action: electionRejected}
 	}
 	return ok
 }
