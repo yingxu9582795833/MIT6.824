@@ -22,35 +22,35 @@ import "sync"
 const RaftElectionTimeout = 1000 * time.Millisecond
 
 func TestInitialElection2A(t *testing.T) {
-	//servers := 3
-	//cfg := make_config(t, servers, false, false)
-	//defer cfg.cleanup()
-	//
-	//cfg.begin("Test (2A): initial election")
-	//
-	//// is a leader elected?
-	////这里的返回值虽然没用，但是这个函数可以测试是否选举出了leader
-	//cfg.checkOneLeader()
-	//
-	//// sleep a bit to avoid racing with followers learning of the
-	//// election, then check that all peers agree on the term.
-	//time.Sleep(50 * time.Millisecond)
-	//term1 := cfg.checkTerms()
-	//if term1 < 1 {
-	//	t.Fatalf("term is %v, but should be at least 1", term1)
-	//}
-	//
-	//// does the leader+term stay the same if there is no network failure?
-	//time.Sleep(2 * RaftElectionTimeout)
-	//term2 := cfg.checkTerms()
-	//if term1 != term2 {
-	//	fmt.Printf("warning: term changed even though there were no failures")
-	//}
-	//
-	//// there should still be a leader.
-	//cfg.checkOneLeader()
-	//
-	//cfg.end()
+	servers := 3
+	cfg := make_config(t, servers, false, false)
+	defer cfg.cleanup()
+
+	cfg.begin("Test (2A): initial election")
+
+	// is a leader elected?
+	//这里的返回值虽然没用，但是这个函数可以测试是否选举出了leader
+	cfg.checkOneLeader()
+
+	// sleep a bit to avoid racing with followers learning of the
+	// election, then check that all peers agree on the term.
+	time.Sleep(50 * time.Millisecond)
+	term1 := cfg.checkTerms()
+	if term1 < 1 {
+		t.Fatalf("term is %v, but should be at least 1", term1)
+	}
+
+	// does the leader+term stay the same if there is no network failure?
+	time.Sleep(2 * RaftElectionTimeout)
+	term2 := cfg.checkTerms()
+	if term1 != term2 {
+		fmt.Printf("warning: term changed even though there were no failures")
+	}
+
+	// there should still be a leader.
+	cfg.checkOneLeader()
+
+	cfg.end()
 }
 
 func TestReElection2A(t *testing.T) {
@@ -110,13 +110,13 @@ func TestManyElections2A(t *testing.T) {
 
 	cfg.checkOneLeader()
 
-	iters := 1500
+	iters := 1000
 	for ii := 1; ii < iters; ii++ {
 		// disconnect three nodes
 		i1 := rand.Int() % servers
 		i2 := rand.Int() % servers
 		i3 := rand.Int() % servers
-		fmt.Println(i1, i2, i3)
+		fmt.Println("disconnect", i1, i2, i3)
 		cfg.disconnect(i1)
 		cfg.disconnect(i2)
 		cfg.disconnect(i3)
@@ -124,7 +124,7 @@ func TestManyElections2A(t *testing.T) {
 		// either the current leader should still be alive,
 		// or the remaining four should elect a new one.
 		cfg.checkOneLeader()
-
+		fmt.Println("connect", i1, i2, i3)
 		cfg.connect(i1)
 		cfg.connect(i2)
 		cfg.connect(i3)

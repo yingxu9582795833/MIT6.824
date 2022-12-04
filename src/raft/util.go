@@ -13,7 +13,7 @@ func init() {
 }
 
 // Debugging
-const Debug = false
+const Debug = true
 
 type FType int
 
@@ -36,6 +36,7 @@ const (
 	BeLeader
 	Used
 	Lose
+	Voted
 )
 
 type Func struct {
@@ -58,6 +59,17 @@ func DPrintf(f Func, a ...interface{}) {
 				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Success", a[2], a[3])
 			}
 		case sendRequestVote:
+			tBase := fmt.Sprintf("caller(%v)-sendRequestVote-rf(%v)", a[0], a[1])
+			switch f.op {
+			case Lose:
+				fmt.Printf(base+"\n", time, tBase+"-Lose")
+			case Rejected:
+				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Reject", a[2], a[3])
+			case Success:
+				fmt.Printf(base+"rf.term : %v, caller.term : %v, caller.voteNum: %v\n", time, tBase+"-Success", a[2], a[3], a[4])
+			case Voted:
+				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Voted", a[2], a[3])
+			}
 		case electionTick:
 			tBase := fmt.Sprintf("caller(%v)-electionTick-rf(%v)", a[0], a[1])
 			switch f.op {
@@ -99,6 +111,6 @@ func DPrintf(f Func, a ...interface{}) {
 }
 
 //选举的随机时间
-func RandElection() time.Duration {
-	return time.Duration(rand.Int()%150+300) * time.Millisecond
+func RandElection() int {
+	return rand.Int()%150 + 300
 }

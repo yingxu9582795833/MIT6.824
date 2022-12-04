@@ -31,8 +31,6 @@ import (
 	//	"bytes"
 	"sync"
 	"sync/atomic"
-	"time"
-
 	//	"6.824/labgob"
 	"6.824/labrpc"
 )
@@ -49,6 +47,7 @@ import (
 // other uses.
 
 //---------自定义的一些类型 -----------------------
+const heartTime = 100
 const (
 	Follower Status = iota
 	Candidate
@@ -67,17 +66,6 @@ const (
 type State int
 type Status int
 
-//心跳包
-
-type AppendEntriesArgs struct {
-	Term     int
-	LeaderId int
-}
-
-type AppendEntriesReply struct {
-	State State
-	Term  int
-}
 type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
@@ -90,12 +78,8 @@ type ApplyMsg struct {
 	SnapshotIndex int
 }
 
-//
-// A Go object implementing a single Raft peer.
-//
-
 type Raft struct {
-	mu        sync.Mutex          // Lock to protect shared access to this peer's state
+	mu        sync.RWMutex        // Lock to protect shared access to this peer's state
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
 	persister *Persister          // Object to hold this peer's persisted state
 	me        int                 // this peer's index into peers[]
@@ -115,13 +99,13 @@ type Raft struct {
 	matchIndex []int
 
 	//自定义状态
-	status           Status       //服务器的身份
-	heartTime        int          //心跳时间
-	electionOverTime int          //选举超时时间
-	loseTime         int          //失联时间
-	voteNum          int          //票数
-	heartTicker      *time.Ticker //心跳定时器
-	electionTimer    *time.Timer  //选举计时器
+	status           Status //服务器的身份
+	heartTime        int    //心跳时间
+	electionOverTime int    //选举超时时间
+	loseTime         int    //失联时间
+	voteNum          int    //票数
+	heartTimer       *Timer //心跳定时器
+	electionTimer    *Timer //选举计时器
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
@@ -200,125 +184,6 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 }
 
 //
-// example RequestVote RPC arguments structure.
-// field names must start with capital letters!
-//
-type RequestVoteArgs struct {
-	// Your data here (2A, 2B).
-	CurrentTerm int //当前任期
-	Ind         int //服务器索引
-}
-
-//
-// example RequestVote RPC reply structure.
-// field names must start with capital letters!
-//
-type RequestVoteReply struct {
-	// Your data here (2A).
-	State State
-	Term  int
-}
-
-//
-// example RequestVote RPC handler.
-//
-func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
-	// Your code here (2A, 2B).
-	//如果当前任期大于收到任期，则不投票
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	if args.CurrentTerm < rf.currentTerm {
-		reply.State = rejected
-		DPrintf(Func{fType: RequestVote, op: Rejected}, args.Ind, rf.me, rf.currentTerm, args.CurrentTerm)
-		return
-	} else if rf.votedFor != -1 && rf.currentTerm == args.CurrentTerm { //否则投票
-		reply.State = used
-	} else {
-		//重置定时器
-		rf.electionTimer.Reset(RandElection())
-		DPrintf(Func{fType: RequestVote, op: Success}, args.Ind, rf.me, rf.currentTerm, args.CurrentTerm)
-		rf.currentTerm = args.CurrentTerm
-		rf.votedFor = args.Ind
-		rf.status = Follower
-		reply.State = voted
-		reply.Term = rf.currentTerm
-	}
-}
-
-//
-// example code to send a RequestVote RPC to a server.
-// server is the index of the target server in rf.peers[].
-// expects RPC arguments in args.
-// fills in *reply with RPC reply, so caller should
-// pass &reply.
-// the types of the args and reply passed to Call() must be
-// the same as the types of the arguments declared in the
-// handler function (including whether they are pointers).
-//
-// The labrpc package simulates a lossy network, in which servers
-// may be unreachable, and in which requests and replies may be lost.
-// Call() sends a request and waits for a reply. If a reply arrives
-// within a timeout interval, Call() returns true; otherwise
-// Call() returns false. Thus Call() may not return for a while.
-// A false return can be caused by a dead server, a live server that
-// can't be reached, a lost request, or a lost reply.
-//
-// Call() is guaranteed to return (perhaps after a delay) *except* if the
-// handler function on the server side does not return.  Thus there
-// is no need to implement your own timeouts around Call().
-//
-// look at the comments in ../labrpc/labrpc.go for more details.
-//
-// if you're having trouble getting RPC to work, check that you've
-// capitalized all field names in structs passed over RPC, and
-// that the caller passes the address of the reply struct with &, not
-// the struct itself.
-//
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	//反复寻求投票
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	if !ok {
-		ticker := time.NewTicker(time.Duration(rf.loseTime) * time.Millisecond)
-		for !ok {
-			select {
-			case <-ticker.C:
-				reply.State = timeout
-				break
-			default:
-				ok = rf.peers[server].Call("Raft.RequestVote", args, reply)
-			}
-		}
-	}
-	return ok
-}
-func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	if rf.currentTerm <= args.Term {
-		rf.electionTimer.Reset(RandElection())
-		DPrintf(Func{fType: AppendEntries, op: Success}, args.LeaderId, rf.me, rf.currentTerm, args.Term)
-		rf.status = Follower
-		rf.currentTerm = args.Term
-		rf.votedFor = -1
-		rf.voteNum = 0
-		reply.State = success
-	} else {
-		DPrintf(Func{fType: AppendEntries, op: Rejected}, args.LeaderId, rf.me, rf.currentTerm, args.Term)
-		reply.State = rejected
-	}
-	reply.Term = rf.currentTerm
-}
-func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
-	//fmt.Printf("%v sendAppendEntires to  start %v\n", rf.me, server)
-	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
-	//fmt.Printf("%v sendAppendEntires to %v end \n", rf.me, server)
-	if !ok {
-		reply.State = lose
-		return
-	}
-}
-
-//
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
 // server isn't the leader, returns false. otherwise start the
@@ -358,6 +223,8 @@ func (rf *Raft) Kill() {
 	// Your code here, if desired.
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	rf.electionTimer.stop()
+	rf.heartTimer.stop()
 	rf.dead = 1
 }
 
@@ -366,129 +233,6 @@ func (rf *Raft) killed() bool {
 	defer rf.mu.Unlock()
 	z := rf.dead
 	return z == 1
-}
-
-// The ticker go routine starts a new election if this peer hasn't received
-// heartsbeats recently.
-func (rf *Raft) electionTick() {
-	for rf.killed() == false {
-		<-rf.electionTimer.C
-		rf.mu.Lock()
-		if rf.status == Leader {
-			rf.mu.Unlock()
-			continue
-		}
-		//改变身份
-		rf.status = Candidate
-		//任期递增
-		rf.currentTerm++
-		//投票给自己
-		rf.voteNum++
-		rf.votedFor = rf.me
-		//重置超时时间
-		//fmt.Println(rf.me, rf.currentTerm)
-		rf.electionTimer.Reset(RandElection())
-		DPrintf(Func{fType: electionTick, op: Start}, rf.me, -1, rf.currentTerm)
-		rf.mu.Unlock()
-		//请求其他服务器投票
-		for i := 0; i < len(rf.peers); i++ {
-			if i == rf.me {
-				continue
-			}
-			go func(i int) {
-				rf.mu.Lock()
-				args := RequestVoteArgs{
-					CurrentTerm: rf.currentTerm,
-					Ind:         rf.me,
-				}
-				reply := RequestVoteReply{}
-				rf.mu.Unlock()
-				rf.sendRequestVote(i, &args, &reply)
-				switch reply.State {
-				case timeout:
-					DPrintf(Func{fType: electionTick, op: Lose}, rf.me, i)
-				case rejected:
-					rf.mu.Lock()
-					if reply.Term > rf.currentTerm {
-						rf.electionTimer.Reset(RandElection())
-						DPrintf(Func{fType: electionTick, op: Rejected}, rf.me, i, reply.Term, rf.currentTerm)
-						rf.status = Follower
-						rf.currentTerm = reply.Term
-						rf.voteNum = 0
-						rf.votedFor = -1
-					}
-					rf.mu.Unlock()
-				case voted:
-					rf.mu.Lock()
-					rf.voteNum++
-					DPrintf(Func{fType: electionTick, op: Success}, rf.me, i, reply.Term, rf.currentTerm, rf.voteNum)
-					if rf.voteNum > len(rf.peers)/2 {
-						DPrintf(Func{fType: electionTick, op: BeLeader}, rf.me, i, reply.Term, rf.currentTerm, rf.voteNum, len(rf.peers))
-						rf.status = Leader
-					}
-					rf.mu.Unlock()
-				case used:
-					rf.mu.Lock()
-					DPrintf(Func{fType: electionTick, op: Used}, rf.me, i)
-					rf.mu.Unlock()
-				}
-			}(i)
-		}
-	}
-}
-
-func (rf *Raft) heartTick() {
-	for rf.killed() == false {
-		<-rf.heartTicker.C
-		//DPrintf(Func{fType: Test, op: Success}, rf.me)
-		rf.mu.Lock()
-		if rf.status != Leader {
-			rf.mu.Unlock()
-			continue
-		}
-		rf.mu.Unlock()
-		//向其他的服务器发送心跳包
-		for i := 0; i < len(rf.peers); i++ {
-			if i == rf.me {
-				continue
-			}
-			go func(i int) {
-				rf.mu.Lock()
-				args := AppendEntriesArgs{
-					Term:     rf.currentTerm,
-					LeaderId: rf.me,
-				}
-				reply := AppendEntriesReply{}
-				rf.mu.Unlock()
-				rf.sendAppendEntries(i, &args, &reply)
-				rf.mu.Lock()
-				defer rf.mu.Unlock()
-				if rf.status != Leader {
-					return
-				}
-				switch reply.State {
-				case notLeader:
-				case lose:
-					DPrintf(Func{fType: heartTick, op: Lose}, rf.me, i, reply.Term, rf.currentTerm)
-				case success:
-					DPrintf(Func{fType: heartTick, op: Success}, rf.me, i, reply.Term, rf.currentTerm)
-				case rejected:
-					DPrintf(Func{fType: heartTick, op: Rejected}, rf.me, i, reply.Term, rf.currentTerm)
-					if reply.Term > rf.currentTerm {
-						rf.currentTerm = reply.Term
-						rf.status = Follower
-						rf.electionTimer.Reset(RandElection())
-						rf.voteNum = 0
-						rf.votedFor = -1
-					}
-				}
-			}(i)
-		}
-	}
-}
-func (rf *Raft) ticker() {
-	go rf.heartTick()
-	go rf.electionTick()
 }
 
 //
@@ -514,16 +258,17 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.votedFor = -1
 	rf.voteNum = 0
 	rf.status = Follower
-	rf.electionTimer = time.NewTimer(RandElection())
-	rf.heartTicker = time.NewTicker(time.Duration(100) * time.Millisecond)
-	rf.loseTime = 200
+
 	rf.currentTerm = 0
+	rf.electionTimer = makeTimer(RandElection(), rf.startElection, rf)
+	rf.heartTimer = makeTimer(heartTime, rf.startHeart, rf)
+
+	rf.electionTimer.start()
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
 	rf.mu.Unlock()
 	// start ticker goroutine to start elections
-	rf.ticker()
 
 	return rf
 }
