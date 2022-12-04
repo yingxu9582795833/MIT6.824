@@ -97,7 +97,6 @@ func make_config(t *testing.T, n int, unreliable bool, snapshot bool) *config {
 		cfg.logs[i] = map[int]interface{}{}
 		cfg.start1(i, applier)
 	}
-
 	// connect everyone
 	for i := 0; i < cfg.n; i++ {
 		cfg.connect(i)
@@ -325,7 +324,7 @@ func (cfg *config) start1(i int, applier func(int, chan ApplyMsg)) {
 	cfg.mu.Lock()
 	cfg.rafts[i] = rf
 	cfg.mu.Unlock()
-
+	//time.Sleep(time.Second * 600)
 	go applier(i, applyCh)
 
 	svc := labrpc.MakeService(rf)
@@ -434,7 +433,6 @@ func (cfg *config) checkOneLeader() int {
 	for iters := 0; iters < 10; iters++ {
 		ms := 450 + (rand.Int63() % 100)
 		time.Sleep(time.Duration(ms) * time.Millisecond)
-
 		leaders := make(map[int][]int)
 		for i := 0; i < cfg.n; i++ {
 			if cfg.connected[i] {
@@ -453,10 +451,11 @@ func (cfg *config) checkOneLeader() int {
 				lastTermWithLeader = term
 			}
 		}
-
+		//fmt.Printf("iters:%v lastTermWithLeader: %v, learder is : %v\n", iters, lastTermWithLeader, leaders[lastTermWithLeader])
 		if len(leaders) != 0 {
 			return leaders[lastTermWithLeader][0]
 		}
+		//fmt.Printf("end iters: %v\n", iters)
 	}
 	cfg.t.Fatalf("expected one leader, got none")
 	return -1
@@ -472,6 +471,7 @@ func (cfg *config) checkTerms() int {
 			if term == -1 {
 				term = xterm
 			} else if term != xterm {
+				fmt.Println(xterm, term)
 				cfg.t.Fatalf("servers disagree on term")
 			}
 		}

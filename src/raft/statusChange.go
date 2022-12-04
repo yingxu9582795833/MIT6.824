@@ -1,7 +1,6 @@
 package raft
 
 type toBeFollower struct {
-	StateMachine
 	raft *Raft
 }
 
@@ -12,22 +11,29 @@ func (tr *toBeFollower) transfer(arg ...interface{}) SMState {
 	if len(arg) > 1 {
 		return ErrorState
 	}
-	context, ok := arg[0].(higherTerm)
+	rf.heartTimer.stop()
+	rf.electionTimer.setWaitTime(RandElection())
+	rf.electionTimer.start()
+	context, ok := arg[0].(*higherTerm)
+	//已被其他rf先一步更新，则不进行状态的改变
 	if ok {
 		switch context.action {
-		case appendEntriesRejected:
+		case appendEntriesSucceed, appendEntriesRejected:
 			rf.currentTerm = context.highTerm
 			rf.votedFor = -1
 			rf.voteNum = 0
-			//重置定时器
-			rf.electionTimer.setWaitTime(RandElection())
-			rf.electionTimer.start()
 		case electionRejected:
+			rf.currentTerm = context.highTerm
+			rf.votedFor = -1
+			rf.voteNum = 0
+		case electionSucceed:
+			//已经被其他索票更新了
+			if rf.currentTerm >= context.highTerm {
+				return notTransfer
+			}
 			rf.currentTerm = context.highTerm
 			rf.votedFor = context.highIndex
 			rf.voteNum = 0
-			rf.electionTimer.setWaitTime(RandElection())
-			rf.electionTimer.start()
 		}
 	} else {
 		return ErrorState
@@ -36,7 +42,6 @@ func (tr *toBeFollower) transfer(arg ...interface{}) SMState {
 }
 
 type toBeLeader struct {
-	StateMachine
 	raft *Raft
 }
 

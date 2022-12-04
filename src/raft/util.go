@@ -13,7 +13,7 @@ func init() {
 }
 
 // Debugging
-const Debug = false
+const Debug = true
 
 type FType int
 
@@ -25,12 +25,14 @@ const (
 	heartTick
 	electionTick
 	Test
+	SM
 )
 
 type Op int
 
 const (
 	Rejected Op = iota
+	eventCome
 	Success
 	Start
 	BeLeader
@@ -46,9 +48,15 @@ type Func struct {
 func DPrintf(f Func, a ...interface{}) {
 	base := "[%-8v  %-40s]: "
 	time := time.Since(debugStart).Microseconds()
-	time /= 100
+	time /= 1000
 	if Debug {
 		switch f.fType {
+		case SM:
+			switch f.op {
+			case eventCome:
+				tBase := fmt.Sprintf("rf(%v)-eventCome-eventType(%v)", a[0], a[1])
+				fmt.Printf(base+"\n", time, tBase)
+			}
 		case RequestVote:
 			tBase := fmt.Sprintf("caller(%v)-RequestVote-rf(%v)", a[0], a[1])
 			switch f.op {
@@ -58,6 +66,13 @@ func DPrintf(f Func, a ...interface{}) {
 				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Success", a[2], a[3])
 			}
 		case sendRequestVote:
+			tBase := fmt.Sprintf("caller(%v)-sendRequestVote-rf(%v)", a[0], a[1])
+			switch f.op {
+			case Rejected:
+				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Reject", a[2], a[3])
+			case Success:
+				fmt.Printf(base+"rf.term : %v, caller.term : %v, caller.voteNum: %v\n", time, tBase+"-Success", a[2], a[3], a[4])
+			}
 		case electionTick:
 			tBase := fmt.Sprintf("caller(%v)-electionTick-rf(%v)", a[0], a[1])
 			switch f.op {
@@ -100,5 +115,5 @@ func DPrintf(f Func, a ...interface{}) {
 
 //RandElection 选举的随机时间
 func RandElection() int {
-	return rand.Int()%150 + 300
+	return rand.Int()%350 + 500
 }

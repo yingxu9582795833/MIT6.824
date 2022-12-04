@@ -129,10 +129,8 @@ func (rf *Raft) GetState() (int, bool) {
 
 	var term int
 	var isleader bool
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
 	term = rf.currentTerm
-	isleader = rf.smState == Leader
+	isleader = rf.StateMachine.smState == Leader
 	return term, isleader
 }
 
@@ -235,7 +233,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 // should call killed() to check whether it should stop.
 //
 func (rf *Raft) Kill() {
-	atomic.StoreInt32(&rf.dead, 1)
+	//atomic.StoreInt32(&rf.dead, 1)
 	// Your code here, if desired.
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -245,6 +243,15 @@ func (rf *Raft) Kill() {
 func (rf *Raft) killed() bool {
 	z := atomic.LoadInt32(&rf.dead)
 	return z == 1
+}
+
+func (rf *Raft) initSM() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	rf.StateMachine.smState = Follower
+	rf.StateMachine.eventCh = make(chan Event)
+	rf.StateMachine.raft = rf
+	rf.StateMachine.initTranTable()
 }
 
 //
@@ -264,7 +271,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
-	rf.mu.Lock()
 	// Your initialization code here (2A, 2B, 2C).
 	rf.votedFor = -1
 	rf.voteNum = 0
@@ -273,11 +279,11 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.currentTerm = 0
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
-
+	rf.initSM()
 	rf.electionTimer.setWaitTime(RandElection())
 	rf.electionTimer.start()
 	go rf.StateMachine.mainLoop()
-	rf.mu.Unlock()
+	//time.Sleep(100 * time.Second)
 	// start ticker goroutine to start elections
 
 	return rf

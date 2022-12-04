@@ -23,13 +23,15 @@ func makeTimer(waitTime int, event Event, rf *Raft) *Timer {
 		event:    event,
 		raft:     rf,
 	}
-	timer.timer = time.NewTimer(10000 * time.Second)
+	timer.timer = time.NewTimer(3600 * time.Second)
 	go func(timer *Timer) {
-		timer.stop()
+		//注意这个地方不能有timer.stop
+		//因为Make里面的定时器如果先reset完毕，这里可能会破坏掉Reset的操作
+		//timer.stop()
 		for {
 			<-timer.timer.C
 			timer.raft.eventCh <- event
-			timer.start()
+			//timer.start()
 		}
 	}(timer)
 	return timer
