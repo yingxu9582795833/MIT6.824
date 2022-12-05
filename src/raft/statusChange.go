@@ -2,8 +2,10 @@ package raft
 
 func (rf *Raft) toBeFollower(newTerm int) {
 	rf.heartTimer.stop()
+	if newTerm > rf.currentTerm {
+		rf.currentTerm = newTerm
+	}
 	rf.status = Follower
-	rf.currentTerm = newTerm
 	rf.votedFor = -1
 	rf.voteNum = 0
 	rf.electionTimer.setWaitTime(RandElection())
@@ -31,8 +33,8 @@ func (rf *Raft) voteToCandidate(args *RequestVoteArgs, reply *RequestVoteReply) 
 	reply.Index = rf.me
 	rf.electionTimer.setWaitTime(RandElection())
 	rf.electionTimer.start()
-	rf.currentTerm = args.CurrentTerm
+	rf.currentTerm = args.Term
 	rf.voteNum = 0
-	rf.votedFor = args.Ind
+	rf.votedFor = args.CandidateId
 	rf.status = Follower
 }

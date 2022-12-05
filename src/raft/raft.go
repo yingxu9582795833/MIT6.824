@@ -61,6 +61,7 @@ const (
 	success
 	lose
 	notLeader
+	appendConfilict
 )
 
 type State int
@@ -78,6 +79,10 @@ type ApplyMsg struct {
 	SnapshotIndex int
 }
 
+type LogEntry struct {
+	Term    int
+	Command interface{}
+}
 type Raft struct {
 	mu        sync.RWMutex        // Lock to protect shared access to this peer's state
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
@@ -88,16 +93,16 @@ type Raft struct {
 	//持久性状态
 	currentTerm int
 	votedFor    int
-	log         []string
+	logs        []LogEntry
 
 	//易失性状态
 	commitIndex int
 	lastApplied int
 
 	//领导的状态
-	nextIndex  []int
-	matchIndex []int
-
+	nextIndex    []int
+	matchIndex   []int
+	leaderCommit int
 	//自定义状态
 	status           Status //服务器的身份
 	heartTime        int    //心跳时间
@@ -201,8 +206,14 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index := -1
 	term := -1
 	isLeader := true
-
-	// Your code here (2B).
+	rf.mu.RLock()
+	defer rf.mu.RUnlock()
+	if rf.killed() || rf.status != Leader {
+		return index, term, false
+	}
+	rf.logs = append(rf.logs, LogEntry{Term: rf.currentTerm, Command: command})
+	index = len(rf.logs)
+	term = rf.currentTerm
 
 	return index, term, isLeader
 }
@@ -253,22 +264,20 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 	rf.mu.Lock()
-	// Your initialization code here (2A, 2B, 2C).
 
 	rf.votedFor = -1
 	rf.voteNum = 0
 	rf.status = Follower
-
+	rf.logs = make([]LogEntry, 0)
 	rf.currentTerm = 0
+	rf.leaderCommit = 0
 	rf.electionTimer = makeTimer(RandElection(), rf.startElection, rf)
 	rf.heartTimer = makeTimer(heartTime, rf.startHeart, rf)
 
 	rf.electionTimer.start()
-	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
 	rf.mu.Unlock()
-	// start ticker goroutine to start elections
 
 	return rf
 }

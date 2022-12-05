@@ -37,6 +37,7 @@ const (
 	Used
 	Lose
 	Voted
+	Unexpected
 )
 
 type Func struct {
@@ -57,6 +58,8 @@ func DPrintf(f Func, a ...interface{}) {
 				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Reject", a[2], a[3])
 			case Success:
 				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Success", a[2], a[3])
+			case Unexpected:
+				fmt.Printf(base+"\n", time, tBase+"-Unexpected")
 			}
 		case sendRequestVote:
 			tBase := fmt.Sprintf("caller(%v)-sendRequestVote-rf(%v)", a[0], a[1])
@@ -69,6 +72,8 @@ func DPrintf(f Func, a ...interface{}) {
 				fmt.Printf(base+"rf.term : %v, caller.term : %v, caller.voteNum: %v\n", time, tBase+"-Success", a[2], a[3], a[4])
 			case Voted:
 				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Voted", a[2], a[3])
+			case Unexpected:
+				fmt.Printf(base+"\n", time, tBase+"-Unexpected")
 			}
 		case electionTick:
 			tBase := fmt.Sprintf("caller(%v)-electionTick-rf(%v)", a[0], a[1])
@@ -85,6 +90,8 @@ func DPrintf(f Func, a ...interface{}) {
 				fmt.Printf(base+"\n", time, tBase+"-Used")
 			case Lose:
 				fmt.Printf(base+"\n", time, tBase+"-Lose")
+			case Unexpected:
+				fmt.Printf(base+"\n", time, tBase+"-Unexpected")
 			}
 		case AppendEntries:
 			tBase := fmt.Sprintf("caller(%v)-AppendEntries-rf(%v)", a[0], a[1])
@@ -93,16 +100,20 @@ func DPrintf(f Func, a ...interface{}) {
 				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Success", a[2], a[3])
 			case Rejected:
 				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Rejected", a[2], a[3])
+			case Unexpected:
+				fmt.Printf(base+"\n", time, tBase+"-Unexpected")
 			}
-		case heartTick:
-			tBase := fmt.Sprintf("caller(%v)-heartTick-rf(%v)", a[0], a[1])
+		case sendAppendEntries:
+			tBase := fmt.Sprintf("caller(%v)-sendAppendEntries-rf(%v)", a[0], a[1])
 			switch f.op {
 			case Success:
 				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Success", a[2], a[3])
 			case Rejected:
 				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Rejected", a[2], a[3])
 			case Lose:
-				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Lose", a[2], a[3])
+				fmt.Printf(base+"\n", time, tBase+"-Lose")
+			case Unexpected:
+				fmt.Printf(base+"\n", time, tBase+"-Unexpected")
 			}
 		case Test:
 			fmt.Printf(base+"caller: %v\n", time, "", a[0])

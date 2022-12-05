@@ -7,35 +7,53 @@ import (
 //心跳包
 
 type AppendEntriesArgs struct {
-	Term     int
-	LeaderId int
+	Term         int
+	LeaderId     int
+	PreLogIndex  int      //新日志前一条日志的索引
+	PreLogTerm   int      //新日志前一条日志的任期
+	Entries      []string //需要被保存的日志
+	LeaderCommit int      //Leader已知已提交的日志最高索引
 }
 
 type AppendEntriesReply struct {
-	State State
-	Term  int
-	Index int
+	State        State
+	Term         int
+	Index        int
+	newNextIndex int
+}
+
+func (rf *Raft) getPreLogIndex(server int) int {
+	return rf.nextIndex[server]
+}
+func (rf *Raft) getPreLogTerm(server int) int {
+	return rf.logs[rf.getPreLogIndex(server)].Term
 }
 
 //AppendEntries 如果同时存在两个相同任期的leader则会出错，幸运的是，不会存在（因为raft总是奇数）
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	if rf.currentTerm <= args.Term {
-		DPrintf(Func{fType: AppendEntries, op: Success}, args.LeaderId, rf.me, rf.currentTerm, args.Term)
-		rf.toBeFollower(args.Term)
-		reply.State = success
-	} else {
+	reply.Term = rf.currentTerm
+	if rf.currentTerm > args.Term { //直接拒绝
 		DPrintf(Func{fType: AppendEntries, op: Rejected}, args.LeaderId, rf.me, rf.currentTerm, args.Term)
 		reply.State = rejected
+		return
 	}
-	reply.Term = rf.currentTerm
+	if args.PreLogIndex > rf.getLastIndex() || rf.logs[args.PreLogIndex].Term != args.PreLogIndex {
+		reply.State = appendConfilict
+		reply.newNextIndex = rf.lastApplied + 1
+		return
+	}
+	rf.toBeFollower(args.Term)
 }
 func (rf *Raft) sendAppendEntries(server int, isRejected *bool, cond *sync.Cond) bool {
 	rf.mu.RLock()
 	args := AppendEntriesArgs{
-		Term:     rf.currentTerm,
-		LeaderId: rf.me,
+		Term:         rf.currentTerm,
+		LeaderId:     rf.me,
+		PreLogIndex:  rf.getPreLogIndex(server),
+		PreLogTerm:   rf.getPreLogTerm(server),
+		LeaderCommit: rf.leaderCommit,
 	}
 	reply := AppendEntriesReply{}
 	rf.mu.RUnlock()
@@ -47,11 +65,11 @@ func (rf *Raft) sendAppendEntries(server int, isRejected *bool, cond *sync.Cond)
 	defer rf.mu.Unlock()
 	switch reply.State {
 	case lose:
-		DPrintf(Func{fType: heartTick, op: Lose}, rf.me, reply.Index, reply.Term, rf.currentTerm)
+		DPrintf(Func{fType: sendAppendEntries, op: Lose}, rf.me, reply.Index)
 	case success:
-		DPrintf(Func{fType: heartTick, op: Success}, rf.me, reply.Index, reply.Term, rf.currentTerm)
+		DPrintf(Func{fType: sendAppendEntries, op: Success}, rf.me, reply.Index, reply.Term, rf.currentTerm)
 	case rejected:
-		DPrintf(Func{fType: heartTick, op: Rejected}, rf.me, reply.Index, reply.Term, rf.currentTerm)
+		DPrintf(Func{fType: sendAppendEntries, op: Rejected}, rf.me, reply.Index, reply.Term, rf.currentTerm)
 		rf.toBeFollower(reply.Term)
 	}
 	return ok
