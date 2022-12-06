@@ -37,6 +37,8 @@ const (
 	Used
 	Lose
 	Voted
+	Conflict
+	Exceed
 	Unexpected
 )
 
@@ -45,6 +47,13 @@ type Func struct {
 	op    Op
 }
 
+func min(a int, b int) int {
+	if a < b {
+		return a
+	} else {
+		return b
+	}
+}
 func DPrintf(f Func, a ...interface{}) {
 	base := "[%-8v  %-40s]: "
 	time := time.Since(debugStart).Microseconds()
@@ -54,10 +63,12 @@ func DPrintf(f Func, a ...interface{}) {
 		case RequestVote:
 			tBase := fmt.Sprintf("caller(%v)-RequestVote-rf(%v)", a[0], a[1])
 			switch f.op {
-			case Rejected:
-				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Reject", a[2], a[3])
 			case Success:
-				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Success", a[2], a[3])
+				fmt.Printf(base+"rf.term : %v, caller.term : %v, rf.lastIndex : %v , rf.lastTerm : %v, "+
+					"caller.preIndex : %v, caller.preTerm : %v\n", time, tBase+"-Success", a[2], a[3], a[4], a[5], a[6], a[7])
+			case Rejected:
+				fmt.Printf(base+"rf.term : %v, caller.term : %v, rf.lastIndex : %v , rf.lastTerm : %v, "+
+					"caller.preIndex : %v, caller.preTerm : %v\n", time, tBase+"-Reject", a[2], a[3], a[4], a[5], a[6], a[7])
 			case Unexpected:
 				fmt.Printf(base+"\n", time, tBase+"-Unexpected")
 			}
@@ -97,9 +108,17 @@ func DPrintf(f Func, a ...interface{}) {
 			tBase := fmt.Sprintf("caller(%v)-AppendEntries-rf(%v)", a[0], a[1])
 			switch f.op {
 			case Success:
-				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Success", a[2], a[3])
+				fmt.Printf(base+"rf.term : %v, caller.term : %v, rf.lastIndex : %v , rf.lastTerm : %v"+
+					"caller.preIndex : %v, caller.preTerm : %v\n", time, tBase+"-Success", a[2], a[3], a[4], a[5], a[6], a[7])
 			case Rejected:
-				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Rejected", a[2], a[3])
+				fmt.Printf(base+"rf.term : %v, caller.term : %v, rf.lastIndex : %v , rf.lastTerm : %v"+
+					"caller.preIndex : %v, caller.preTerm : %v\n", time, tBase+"-Reject", a[2], a[3], a[4], a[5], a[6], a[7])
+			case Conflict:
+				fmt.Printf(base+"rf.term : %v, caller.term : %v, rf.lastIndex : %v , rf.lastTerm : %v"+
+					"caller.preIndex : %v, caller.preTerm : %v\n", time, tBase+"-Conflict", a[2], a[3], a[4], a[5], a[6], a[7])
+			case Exceed:
+				fmt.Printf(base+"rf.term : %v, caller.term : %v, rf.lastIndex : %v , rf.lastTerm : %v"+
+					"caller.preIndex : %v, caller.preTerm : %v\n", time, tBase+"-Exceed", a[2], a[3], a[4], a[5], a[6], a[7])
 			case Unexpected:
 				fmt.Printf(base+"\n", time, tBase+"-Unexpected")
 			}

@@ -14,9 +14,8 @@ type RequestVoteArgs struct {
 
 type RequestVoteReply struct {
 	// Your data here (2A).
-	State State
+	State VoteState
 	Term  int
-	Index int
 }
 
 func (rf *Raft) lessNewThan(Term int, Index int) bool {
@@ -29,24 +28,26 @@ func (rf *Raft) getLastIndex() int {
 	return len(rf.logs) - 1
 }
 func (rf *Raft) getLastTerm() int {
-	return rf.logs[rf.getLastTerm()].Term
+	return rf.logs[rf.getLastIndex()].Term
 }
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 	//如果当前任期大于收到任期，则不投票
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	reply.Index = rf.me
 	if args.Term > rf.currentTerm && rf.lessNewThan(args.LastLogTerm, args.LastLogIndex) {
-		DPrintf(Func{fType: RequestVote, op: Success}, args.CandidateId, rf.me, rf.currentTerm, args.Term)
+		DPrintf(Func{fType: RequestVote, op: Success}, args.CandidateId, rf.me, rf.currentTerm, args.Term, rf.getLastIndex(), rf.getLastTerm(),
+			args.LastLogIndex, args.LastLogTerm)
 		rf.voteToCandidate(args, reply)
 	} else if args.Term == rf.currentTerm && (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && rf.lessNewThan(args.LastLogTerm, args.LastLogIndex) {
-		DPrintf(Func{fType: RequestVote, op: Success}, args.CandidateId, rf.me, rf.currentTerm, args.Term)
+		DPrintf(Func{fType: RequestVote, op: Success}, args.CandidateId, rf.me, rf.currentTerm, args.Term, rf.getLastIndex(), rf.getLastTerm(),
+			args.LastLogIndex, args.LastLogTerm)
 		rf.voteToCandidate(args, reply)
 	} else { // args.Term < rf.currentTerm || other situation
-		reply.State = rejected
+		reply.State = voteRejected
 		reply.Term = rf.currentTerm
-		DPrintf(Func{fType: RequestVote, op: Rejected}, args.CandidateId, rf.me, rf.currentTerm, args.Term)
+		DPrintf(Func{fType: RequestVote, op: Rejected}, args.CandidateId, rf.me, rf.currentTerm, args.Term, rf.getLastIndex(), rf.getLastTerm(),
+			args.LastLogIndex, args.LastLogTerm)
 	}
 }
 
@@ -58,18 +59,21 @@ func (rf *Raft) sendRequestVote(server int, joinCount *int, elected *bool, cond 
 		LastLogIndex: rf.getLastIndex(),
 		LastLogTerm:  rf.getLastTerm(),
 	}
+
 	reply := RequestVoteReply{}
 	rf.mu.RUnlock()
 	ok := rf.peers[server].Call("Raft.RequestVote", &args, &reply)
 	if !ok {
-		reply.State = lose
+		reply.State = voteLose
 	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	switch reply.State {
-	case success: //[requestVote][requestVote]
+	case voteLose:
+		DPrintf(Func{fType: sendRequestVote, op: Lose}, rf.me, server)
+	case voteSuccess: //[requestVote][requestVote]
 		rf.voteNum++
-		DPrintf(Func{fType: sendRequestVote, op: Success}, rf.me, reply.Index, reply.Term, rf.currentTerm, rf.voteNum)
+		DPrintf(Func{fType: sendRequestVote, op: Success}, rf.me, server, reply.Term, rf.currentTerm, rf.voteNum)
 		if rf.voteNum > len(rf.peers)/2 {
 			cond.L.Lock()
 			if !*elected {
@@ -79,11 +83,11 @@ func (rf *Raft) sendRequestVote(server int, joinCount *int, elected *bool, cond 
 			}
 			cond.L.Unlock()
 		}
-	case rejected:
-		DPrintf(Func{fType: sendRequestVote, op: Rejected}, rf.me, reply.Index, reply.Term, rf.currentTerm)
+	case voteRejected:
+		DPrintf(Func{fType: sendRequestVote, op: Rejected}, rf.me, server, reply.Term, rf.currentTerm)
 		rf.toBeFollower(reply.Term)
 	default: //意料之外，则输出该条目，方便debug
-		DPrintf(Func{fType: sendRequestVote, op: Unexpected}, rf.me, reply.Index)
+		DPrintf(Func{fType: sendRequestVote, op: Unexpected}, rf.me, server)
 	}
 	cond.L.Lock()
 	*joinCount++
@@ -93,7 +97,7 @@ func (rf *Raft) sendRequestVote(server int, joinCount *int, elected *bool, cond 
 func (rf *Raft) startElection() {
 	rf.mu.Lock()
 	//存在的情况和startHeart类似
-	if rf.status == Leader {
+	if rf.role == Leader {
 		rf.mu.Unlock()
 		return
 	}

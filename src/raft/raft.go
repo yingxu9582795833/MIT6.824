@@ -47,25 +47,32 @@ import (
 // other uses.
 
 //---------自定义的一些类型 -----------------------
+type VoteState int
+type AppendEntryState int
+type Role int
+
 const heartTime = 100
 const (
-	Follower Status = iota
+	Follower Role = iota
 	Candidate
 	Leader
 )
 const (
-	rejected State = iota
+	voteUnexpected VoteState = iota
+	voteRejected
+	voteSuccess
+	voteLose
 	voted
-	used
-	timeout
-	success
-	lose
-	notLeader
-	appendConfilict
 )
 
-type State int
-type Status int
+const (
+	appendEntryUnexpected AppendEntryState = iota
+	appendEntryOutOfDate
+	appendEntryConflict
+	appendEntrySuccess
+	appendEntryLose
+	appendEntryExceed
+)
 
 type ApplyMsg struct {
 	CommandValid bool
@@ -89,7 +96,7 @@ type Raft struct {
 	persister *Persister          // Object to hold this peer's persisted state
 	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
-
+	applyChan chan ApplyMsg
 	//持久性状态
 	currentTerm int
 	votedFor    int
@@ -100,11 +107,10 @@ type Raft struct {
 	lastApplied int
 
 	//领导的状态
-	nextIndex    []int
-	matchIndex   []int
-	leaderCommit int
+	nextIndex  []int
+	matchIndex []int
 	//自定义状态
-	status           Status //服务器的身份
+	role             Role   //服务器的身份
 	heartTime        int    //心跳时间
 	electionOverTime int    //选举超时时间
 	loseTime         int    //失联时间
@@ -126,7 +132,7 @@ func (rf *Raft) GetState() (int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	term = rf.currentTerm
-	isleader = rf.status == Leader
+	isleader = rf.role == Leader
 	return term, isleader
 }
 
@@ -206,9 +212,12 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index := -1
 	term := -1
 	isLeader := true
-	rf.mu.RLock()
-	defer rf.mu.RUnlock()
-	if rf.killed() || rf.status != Leader {
+	if rf.killed() {
+		return index, term, false
+	}
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if rf.role != Leader {
 		return index, term, false
 	}
 	rf.logs = append(rf.logs, LogEntry{Term: rf.currentTerm, Command: command})
@@ -267,17 +276,19 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	rf.votedFor = -1
 	rf.voteNum = 0
-	rf.status = Follower
-	rf.logs = make([]LogEntry, 0)
+	rf.role = Follower
+	rf.applyChan = make(chan ApplyMsg)
+	rf.matchIndex = make([]int, len(rf.peers))
+	rf.nextIndex = make([]int, len(rf.peers))
+	//遵循论文，将日志索引初始为1
+	rf.logs = make([]LogEntry, 1)
+	rf.logs[0] = LogEntry{Term: 0}
 	rf.currentTerm = 0
-	rf.leaderCommit = 0
 	rf.electionTimer = makeTimer(RandElection(), rf.startElection, rf)
 	rf.heartTimer = makeTimer(heartTime, rf.startHeart, rf)
-
 	rf.electionTimer.start()
+	//go rf.applyTick()
 	rf.readPersist(persister.ReadRaftState())
-
 	rf.mu.Unlock()
-
 	return rf
 }
