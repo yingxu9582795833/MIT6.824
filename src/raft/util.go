@@ -13,7 +13,7 @@ func init() {
 }
 
 // Debugging
-const Debug = false
+const Debug = true
 
 type FType int
 
@@ -22,8 +22,6 @@ const (
 	sendRequestVote
 	AppendEntries
 	sendAppendEntries
-	heartTick
-	electionTick
 	Test
 	Start
 )
@@ -33,14 +31,14 @@ type Op int
 const (
 	Rejected Op = iota
 	Success
-	BeLeader
-	Used
 	Lose
 	Voted
 	Conflict
 	Exceed
 	Unexpected
 	sendCommand
+	disconnect
+	connect
 )
 
 type Func struct {
@@ -129,7 +127,12 @@ func DPrintf(f Func, a ...interface{}) {
 				fmt.Printf(base+"\n", time, tBase+"-Unexpected")
 			}
 		case Test:
-			fmt.Printf(base+"caller: %v\n", time, "", a[0])
+			switch f.op {
+			case disconnect:
+				fmt.Printf(base+"\n", time, a[0])
+			case connect:
+				fmt.Printf(base+"\n", time, a[0])
+			}
 		}
 	}
 }
