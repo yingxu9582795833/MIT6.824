@@ -8,6 +8,7 @@ func (rf *Raft) toBeFollower(newTerm int) {
 	rf.role = Follower
 	rf.votedFor = -1
 	rf.voteNum = 0
+	rf.persist()
 	rf.electionTimer.setWaitTime(RandElection())
 	rf.electionTimer.start()
 }
@@ -18,6 +19,7 @@ func (rf *Raft) toBeCandidate() {
 	rf.currentTerm++
 	rf.voteNum++
 	rf.votedFor = rf.me
+	rf.persist()
 	rf.electionTimer.setWaitTime(RandElection())
 	rf.electionTimer.start()
 }
@@ -43,5 +45,6 @@ func (rf *Raft) voteToCandidate(args *RequestVoteArgs, reply *RequestVoteReply) 
 	rf.currentTerm = args.Term
 	rf.voteNum = 0
 	rf.votedFor = args.CandidateId
+	rf.persist()
 	rf.role = Follower
 }

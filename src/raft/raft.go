@@ -30,7 +30,6 @@ package raft
 import (
 	//	"bytes"
 	"sync"
-	"sync/atomic"
 	//	"6.824/labgob"
 	"6.824/labrpc"
 )
@@ -51,7 +50,7 @@ type VoteState int
 type AppendEntryState int
 type Role int
 
-const heartTime = 100
+const heartTime = 50
 const (
 	Follower Role = iota
 	Candidate
@@ -141,38 +140,6 @@ func (rf *Raft) GetState() (int, bool) {
 // where it can later be retrieved after a crash and restart.
 // see paper's Figure 2 for a description of what should be persistent.
 //
-func (rf *Raft) persist() {
-	// Your code here (2C).
-	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// data := w.Bytes()
-	// rf.persister.SaveRaftState(data)
-}
-
-//
-// restore previously persisted state.
-//
-func (rf *Raft) readPersist(data []byte) {
-	if data == nil || len(data) < 1 { // bootstrap without any state?
-		return
-	}
-	// Your code here (2C).
-	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := labgob.NewDecoder(r)
-	// var xxx
-	// var yyy
-	// if d.Decode(&xxx) != nil ||
-	//    d.Decode(&yyy) != nil {
-	//   error...
-	// } else {
-	//   rf.xxx = xxx
-	//   rf.yyy = yyy
-	// }
-}
 
 //
 // A service wants to switch to snapshot.  Only do so if Raft hasn't
@@ -213,17 +180,20 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	term := -1
 	isLeader := true
 	if rf.killed() {
+		DPrintf(Func{fType: Start, op: sendCommand}, rf.me, index, term, false)
 		return index, term, false
 	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if rf.role != Leader {
+		DPrintf(Func{fType: Start, op: sendCommand}, rf.me, index, term, false)
 		return index, term, false
 	}
 	rf.logs = append(rf.logs, LogEntry{Term: rf.currentTerm, Command: command})
-	index = len(rf.logs)
+	rf.persist()
+	index = rf.getLastIndex()
 	term = rf.currentTerm
-
+	DPrintf(Func{fType: Start, op: sendCommand}, rf.me, index, term, isLeader)
 	return index, term, isLeader
 }
 
@@ -239,7 +209,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 // should call killed() to check whether it should stop.
 //
 func (rf *Raft) Kill() {
-	atomic.StoreInt32(&rf.dead, 1)
 	// Your code here, if desired.
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -272,12 +241,12 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
+	rf.applyChan = applyCh
 	rf.mu.Lock()
 
 	rf.votedFor = -1
 	rf.voteNum = 0
 	rf.role = Follower
-	rf.applyChan = make(chan ApplyMsg)
 	rf.matchIndex = make([]int, len(rf.peers))
 	rf.nextIndex = make([]int, len(rf.peers))
 	//遵循论文，将日志索引初始为1
@@ -286,9 +255,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.currentTerm = 0
 	rf.electionTimer = makeTimer(RandElection(), rf.startElection, rf)
 	rf.heartTimer = makeTimer(heartTime, rf.startHeart, rf)
-	rf.electionTimer.start()
-	//go rf.applyTick()
 	rf.readPersist(persister.ReadRaftState())
+	rf.electionTimer.start()
+	go rf.applyTick()
 	rf.mu.Unlock()
 	return rf
 }

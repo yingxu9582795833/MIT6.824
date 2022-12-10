@@ -19,10 +19,9 @@ type RequestVoteReply struct {
 }
 
 func (rf *Raft) lessNewThan(Term int, Index int) bool {
-	if rf.getLastTerm() != Term {
-		return rf.getLastTerm() <= Term
-	}
-	return rf.getLastIndex() <= Index
+	lastIndex := rf.getLastIndex()
+	lastTerm := rf.getLastTerm()
+	return Term > lastTerm || (Term == lastTerm && Index >= lastIndex)
 }
 func (rf *Raft) getLastIndex() int {
 	return len(rf.logs) - 1
@@ -35,6 +34,33 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	//如果当前任期大于收到任期，则不投票
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	//if args.Term < rf.currentTerm {
+	//	reply.State = voteRejected
+	//	reply.Term = rf.currentTerm
+	//	DPrintf(Func{fType: RequestVote, op: Rejected}, args.CandidateId, rf.me, rf.currentTerm, args.Term, rf.getLastIndex(), rf.getLastTerm(),
+	//		args.LastLogIndex, args.LastLogTerm)
+	//	return
+	//}
+	//if args.Term > rf.currentTerm {
+	//	rf.toBeFollower(args.Term)
+	//}
+	//if !rf.lessNewThan(args.LastLogIndex, args.LastLogTerm) || // 判断日志是否conflict
+	//	rf.votedFor != -1 && rf.votedFor != args.CandidateId && args.Term == reply.Term { // paper中的第二个条件votedFor is null
+	//	reply.State = voteRejected
+	//	reply.Term = rf.currentTerm
+	//	DPrintf(Func{fType: RequestVote, op: Rejected}, args.CandidateId, rf.me, rf.currentTerm, args.Term, rf.getLastIndex(), rf.getLastTerm(),
+	//		args.LastLogIndex, args.LastLogTerm)
+	//	return
+	//} else {
+	//	DPrintf(Func{fType: RequestVote, op: Success}, args.CandidateId, rf.me, rf.currentTerm, args.Term, rf.getLastIndex(), rf.getLastTerm(),
+	//		args.LastLogIndex, args.LastLogTerm)
+	//	rf.voteToCandidate(args, reply)
+	//	return
+	//}
+	//必要条件，否则可能导致某slave节点任期永远不会更新
+	if args.Term > rf.currentTerm {
+		rf.toBeFollower(args.Term)
+	}
 	if args.Term > rf.currentTerm && rf.lessNewThan(args.LastLogTerm, args.LastLogIndex) {
 		DPrintf(Func{fType: RequestVote, op: Success}, args.CandidateId, rf.me, rf.currentTerm, args.Term, rf.getLastIndex(), rf.getLastTerm(),
 			args.LastLogIndex, args.LastLogTerm)
@@ -68,6 +94,9 @@ func (rf *Raft) sendRequestVote(server int, joinCount *int, elected *bool, cond 
 	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	if rf.role == Follower {
+		return ok
+	}
 	switch reply.State {
 	case voteLose:
 		DPrintf(Func{fType: sendRequestVote, op: Lose}, rf.me, server)

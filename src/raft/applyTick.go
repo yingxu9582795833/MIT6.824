@@ -1,8 +1,10 @@
 package raft
 
-import "time"
+import (
+	"time"
+)
 
-const applyTime = 80
+const applyTime = 25
 
 func (rf *Raft) applyTick() {
 	ticker := time.NewTicker(applyTime * time.Millisecond)
@@ -19,7 +21,7 @@ func (rf *Raft) applyTick() {
 			rf.lastApplied += 1
 			Messages = append(Messages, ApplyMsg{
 				CommandValid: true,
-				Command:      rf.logs[rf.lastApplied].Term,
+				Command:      rf.logs[rf.lastApplied].Command,
 				CommandIndex: rf.lastApplied,
 			})
 		}

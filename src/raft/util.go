@@ -13,7 +13,7 @@ func init() {
 }
 
 // Debugging
-const Debug = true
+const Debug = false
 
 type FType int
 
@@ -25,6 +25,7 @@ const (
 	heartTick
 	electionTick
 	Test
+	Start
 )
 
 type Op int
@@ -32,7 +33,6 @@ type Op int
 const (
 	Rejected Op = iota
 	Success
-	Start
 	BeLeader
 	Used
 	Lose
@@ -40,6 +40,7 @@ const (
 	Conflict
 	Exceed
 	Unexpected
+	sendCommand
 )
 
 type Func struct {
@@ -55,7 +56,7 @@ func min(a int, b int) int {
 	}
 }
 func DPrintf(f Func, a ...interface{}) {
-	base := "[%-8v  %-40s]: "
+	base := "[%-8v  %-45s]: "
 	time := time.Since(debugStart).Microseconds()
 	time /= 100
 	if Debug {
@@ -86,39 +87,28 @@ func DPrintf(f Func, a ...interface{}) {
 			case Unexpected:
 				fmt.Printf(base+"\n", time, tBase+"-Unexpected")
 			}
-		case electionTick:
-			tBase := fmt.Sprintf("caller(%v)-electionTick-rf(%v)", a[0], a[1])
+		case Start:
+			tBase := fmt.Sprintf("caller(%v)-Start", a[0])
 			switch f.op {
-			case Start:
-				fmt.Printf(base+"caller.term: %v\n", time, tBase+"-Start", a[2])
-			case Rejected:
-				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Reject", a[2], a[3])
-			case Success:
-				fmt.Printf(base+"rf.term : %v, caller.term : %v, voted-num: %v\n", time, tBase+"-Success", a[2], a[3], a[4])
-			case BeLeader:
-				fmt.Printf(base+"rf.term : %v, caller.term : %v, voted-num: %v, peer nums : %v\n", time, tBase+"-BeLeader", a[2], a[3], a[4], a[5])
-			case Used:
-				fmt.Printf(base+"\n", time, tBase+"-Used")
-			case Lose:
-				fmt.Printf(base+"\n", time, tBase+"-Lose")
-			case Unexpected:
-				fmt.Printf(base+"\n", time, tBase+"-Unexpected")
+			case sendCommand:
+				fmt.Printf(base+"index: %v, term: %v, isLeader: %v\n", time, tBase+"-sendCommand", a[1], a[2], a[3])
 			}
 		case AppendEntries:
 			tBase := fmt.Sprintf("caller(%v)-AppendEntries-rf(%v)", a[0], a[1])
 			switch f.op {
 			case Success:
-				fmt.Printf(base+"rf.term : %v, caller.term : %v, rf.lastIndex : %v , rf.lastTerm : %v"+
-					"caller.preIndex : %v, caller.preTerm : %v\n", time, tBase+"-Success", a[2], a[3], a[4], a[5], a[6], a[7])
+				fmt.Printf(base+"rf.term : %v, caller.term : %v, rf.lastIndex : %v , rf.lastTerm : %v, "+
+					"caller.preIndex : %v, caller.preTerm : %v, caller.entries : %v， rf.logs : %v, rf.commitId : %v\n", time, tBase+"-Success",
+					a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10])
 			case Rejected:
-				fmt.Printf(base+"rf.term : %v, caller.term : %v, rf.lastIndex : %v , rf.lastTerm : %v"+
-					"caller.preIndex : %v, caller.preTerm : %v\n", time, tBase+"-Reject", a[2], a[3], a[4], a[5], a[6], a[7])
+				fmt.Printf(base+"rf.term : %v, caller.term : %v, rf.lastIndex : %v , rf.lastTerm : %v, "+
+					"caller.preIndex : %v, caller.preTerm : %v, caller.entries : %v\n", time, tBase+"-Reject", a[2], a[3], a[4], a[5], a[6], a[7], a[8])
 			case Conflict:
-				fmt.Printf(base+"rf.term : %v, caller.term : %v, rf.lastIndex : %v , rf.lastTerm : %v"+
-					"caller.preIndex : %v, caller.preTerm : %v\n", time, tBase+"-Conflict", a[2], a[3], a[4], a[5], a[6], a[7])
+				fmt.Printf(base+"rf.term : %v, caller.term : %v, rf.lastIndex : %v , rf.lastTerm : %v, "+
+					"caller.preIndex : %v, caller.preTerm : %v, caller.entries : %v\n", time, tBase+"-Conflict", a[2], a[3], a[4], a[5], a[6], a[7], a[8])
 			case Exceed:
-				fmt.Printf(base+"rf.term : %v, caller.term : %v, rf.lastIndex : %v , rf.lastTerm : %v"+
-					"caller.preIndex : %v, caller.preTerm : %v\n", time, tBase+"-Exceed", a[2], a[3], a[4], a[5], a[6], a[7])
+				fmt.Printf(base+"rf.term : %v, caller.term : %v, rf.lastIndex : %v , rf.lastTerm : %v, "+
+					"caller.preIndex : %v, caller.preTerm : %v, caller.entries : %v\n", time, tBase+"-Exceed", a[2], a[3], a[4], a[5], a[6], a[7], a[8])
 			case Unexpected:
 				fmt.Printf(base+"\n", time, tBase+"-Unexpected")
 			}
@@ -126,7 +116,11 @@ func DPrintf(f Func, a ...interface{}) {
 			tBase := fmt.Sprintf("caller(%v)-sendAppendEntries-rf(%v)", a[0], a[1])
 			switch f.op {
 			case Success:
-				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Success", a[2], a[3])
+				fmt.Printf(base+"rf.term : %v, caller.term : %v, caller.logs : %v, caller.commitId : %v, rf.nxtInd : %v,"+
+					"rf.matchInd : %v\n", time, tBase+"-Success", a[2], a[3], a[4], a[5], a[6], a[7])
+			case Conflict:
+				fmt.Printf(base+"rf.term : %v, caller.term : %v, caller.logs : %v, caller.commitId : %v, rf.nxtInd : %v\n", time, tBase+"-Conflict",
+					a[2], a[3], a[4], a[5], a[6])
 			case Rejected:
 				fmt.Printf(base+"rf.term : %v, caller.term : %v\n", time, tBase+"-Rejected", a[2], a[3])
 			case Lose:

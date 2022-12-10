@@ -35,34 +35,41 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	reply.Term = rf.currentTerm
 	if rf.currentTerm > args.Term { //直接拒绝
 		DPrintf(Func{fType: AppendEntries, op: Rejected}, args.LeaderId, rf.me, rf.currentTerm, args.Term, rf.getLastIndex(), rf.getLastTerm(),
-			args.PreLogIndex, args.PreLogTerm)
+			args.PreLogIndex, args.PreLogTerm, args.Entries)
 		reply.State = appendEntryOutOfDate
 		return
 	}
-	rf.toBeFollower(args.Term) //保持follower的特性
-	if args.PreLogTerm >= 1 && (args.PreLogIndex > rf.getLastIndex() || rf.logs[args.PreLogIndex].Term != args.PreLogIndex) || rf.lastApplied > args.PreLogIndex {
+	rf.toBeFollower(args.Term) //该节点回归follower的状态
+	//在Leader存在日志的情况下，有两种需要nextIndex回退的可能
+	//1.caller.PreLogIndex > rf.getLastIndex() 意味着follower节点存在日志缺失的情况，需要PreLogIndex回退
+	//2.caller.PreLogIndex在follower节点中所对应的任期和Leader不一致，也需要PreLogIndex回退
+	//上诉两种情况对应论文中的一致性检查
+	if args.PreLogTerm >= 1 && (args.PreLogIndex > rf.getLastIndex() || rf.logs[args.PreLogIndex].Term != args.PreLogTerm) {
 		DPrintf(Func{fType: AppendEntries, op: Conflict}, args.LeaderId, rf.me, rf.currentTerm, args.Term, rf.getLastIndex(), rf.getLastTerm(),
-			args.PreLogIndex, args.PreLogTerm)
+			args.PreLogIndex, args.PreLogTerm, args.Entries)
 		reply.State = appendEntryConflict
 		reply.NewNextIndex = rf.commitIndex + 1
 		return
 	}
-	if args.PreLogTerm != 0 && (args.PreLogIndex < rf.getLastTerm()) {
+	//leader1 append Slave1成功 但是因为网络原因rpc返回失败了，leader1误以为slave1并没有接收到心跳，leader1对slave1维护的nextIndex并没有更新，导致之后再append slave1时
+	//会出现args.PreLogIndex < rf.commitIndex的情况
+	if args.PreLogTerm != 0 && (args.PreLogIndex < rf.commitIndex) {
 		DPrintf(Func{fType: AppendEntries, op: Exceed}, args.LeaderId, rf.me, rf.currentTerm, args.Term, rf.getLastIndex(), rf.getLastTerm(),
-			args.PreLogIndex, args.PreLogTerm)
+			args.PreLogIndex, args.PreLogTerm, args.Entries)
 		reply.State = appendEntryExceed
 		reply.NewNextIndex = rf.commitIndex + 1
 		return
 	}
-	DPrintf(Func{fType: AppendEntries, op: Success}, args.LeaderId, rf.me, rf.currentTerm, args.Term, rf.getLastIndex(), rf.getLastTerm(),
-		args.PreLogIndex, args.PreLogTerm)
 	reply.State = appendEntrySuccess
-	rf.logs = rf.logs[:args.PreLogIndex+1]
+	rf.logs = rf.logs[0 : args.PreLogIndex+1]
 	rf.logs = append(rf.logs, args.Entries...)
+	rf.persist()
 	reply.NewNextIndex = len(rf.logs)
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, rf.getLastIndex())
 	}
+	DPrintf(Func{fType: AppendEntries, op: Success}, args.LeaderId, rf.me, rf.currentTerm, args.Term, rf.getLastIndex(), rf.getLastTerm(),
+		args.PreLogIndex, args.PreLogTerm, args.Entries, rf.logs, rf.commitIndex)
 }
 func (rf *Raft) sendAppendEntries(server int, copyNum *int, tempMutex *sync.Mutex) bool {
 	rf.mu.RLock()
@@ -73,6 +80,10 @@ func (rf *Raft) sendAppendEntries(server int, copyNum *int, tempMutex *sync.Mute
 		PreLogTerm:   rf.getPreLogTerm(server),
 		LeaderCommit: rf.commitIndex,
 	}
+	args.Entries = make([]LogEntry, len(rf.logs[args.PreLogIndex+1:]))
+	//深拷贝，防止数据冲突
+	copy(args.Entries, rf.logs[args.PreLogIndex+1:])
+	//args.Entries = rf.logs[args.PreLogIndex+1:]
 	reply := AppendEntriesReply{}
 	rf.mu.RUnlock()
 	ok := rf.peers[server].Call("Raft.AppendEntries", &args, &reply)
@@ -81,11 +92,14 @@ func (rf *Raft) sendAppendEntries(server int, copyNum *int, tempMutex *sync.Mute
 	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	if rf.role != Leader {
+		return ok
+	}
 	switch reply.State {
 	case appendEntryLose:
 		DPrintf(Func{fType: sendAppendEntries, op: Lose}, rf.me, server)
+		rf.nextIndex[server] = len(rf.logs)
 	case appendEntrySuccess:
-		DPrintf(Func{fType: sendAppendEntries, op: Success}, rf.me, server, reply.Term, rf.currentTerm)
 		rf.nextIndex[server] = reply.NewNextIndex
 		rf.matchIndex[server] = reply.NewNextIndex - 1
 		for index := rf.getLastIndex(); index >= rf.commitIndex+1; index-- {
@@ -93,23 +107,31 @@ func (rf *Raft) sendAppendEntries(server int, copyNum *int, tempMutex *sync.Mute
 			for i := 0; i < len(rf.peers); i++ {
 				if i == rf.me {
 					sum++
-					continue
 				} else {
+					//这个地方是为了符合论文图8
 					if rf.matchIndex[i] >= index && rf.logs[index].Term == rf.currentTerm {
 						sum++
 					}
 				}
 				if sum > len(rf.peers)/2 {
 					rf.commitIndex = index
-					break
+					return ok
 				}
 			}
 		}
+		DPrintf(Func{fType: sendAppendEntries, op: Success}, rf.me, server, reply.Term, rf.currentTerm,
+			rf.logs, rf.commitIndex, rf.nextIndex[server], rf.matchIndex[server])
 	case appendEntryOutOfDate:
 		DPrintf(Func{fType: sendAppendEntries, op: Rejected}, rf.me, server, reply.Term, rf.currentTerm)
 		rf.toBeFollower(reply.Term)
 	case appendEntryConflict:
 		rf.nextIndex[server] = reply.NewNextIndex
+		DPrintf(Func{fType: sendAppendEntries, op: Conflict}, rf.me, server, reply.Term, rf.currentTerm,
+			rf.logs, rf.commitIndex, rf.nextIndex[server])
+	case appendEntryExceed:
+		rf.nextIndex[server] = reply.NewNextIndex
+		DPrintf(Func{fType: sendAppendEntries, op: Exceed}, rf.me, server, reply.Term, rf.currentTerm,
+			rf.logs, rf.commitIndex, rf.nextIndex[server])
 	}
 	return ok
 }
