@@ -4,9 +4,9 @@ func (rf *Raft) toBeFollower(newTerm int) {
 	rf.heartTimer.stop()
 	if newTerm > rf.currentTerm {
 		rf.currentTerm = newTerm
+		rf.votedFor = -1
 	}
 	rf.role = Follower
-	rf.votedFor = -1
 	rf.voteNum = 0
 	rf.persist()
 	rf.electionTimer.setWaitTime(RandElection())
@@ -26,6 +26,8 @@ func (rf *Raft) toBeCandidate() {
 
 func (rf *Raft) toBeLeader() {
 	rf.role = Leader
+	rf.voteNum = 0
+	rf.votedFor = -1
 	rf.electionTimer.stop()
 	rf.heartTimer.start()
 	for i := 0; i < len(rf.peers); i++ {

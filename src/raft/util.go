@@ -13,7 +13,7 @@ func init() {
 }
 
 // Debugging
-const Debug = true
+const Debug = false
 
 type FType int
 
